@@ -1,0 +1,53 @@
+services:
+  web:
+    build: ./web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+      WORKER_POLL_INTERVAL: "0.2"
+    volumes:
+      - data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  worker:
+    build: ./api
+    command: ["python", "-m", "app.worker"]
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+      WORKER_POLL_INTERVAL: "0.2"
+    volumes:
+      - data:/data
+    depends_on:
+      api:
+        condition: service_started
+
+  verify:
+    build: ./verify
+    environment:
+      API_URL: http://api:8000
+      DATA_DIR: /data
+    volumes:
+      - data:/data
+      # Needed by the restart-recovery test to bounce the worker container.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_started
+
+volumes:
+  data:
